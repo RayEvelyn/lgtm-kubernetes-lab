@@ -1,5 +1,7 @@
 # A small LGTM observability lab for Kubernetes
 
+Start with [GitOps, the bootstrap order, and why the repos are separate](docs/START-HERE.md).
+
 When an application slows down, a running pod does not explain why. This lab gives you three kinds of evidence and a place to explore them: **metrics** show trends, **logs** explain events, and **traces** show a request's path and where it spent time. It is useful for learning SRE troubleshooting, checking a deployment's impact and understanding infrastructure behavior before buying or operating a large monitoring platform.
 
 You do not need every tool on day one. Start by finding one question you cannot answer—such as whether a backend is healthy—then add the signal that answers it. Keeping the collector and its storage observable also prevents a broken monitoring pipeline from looking like a healthy application.
