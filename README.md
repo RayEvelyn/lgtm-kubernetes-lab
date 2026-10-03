@@ -6,6 +6,26 @@ When an application slows down, a running pod does not explain why. This lab giv
 
 You do not need every tool on day one. Start by finding one question you cannot answer—such as whether a backend is healthy—then add the signal that answers it. Keeping the collector and its storage observable also prevents a broken monitoring pipeline from looking like a healthy application.
 
+
+## Capacity and reachability before deployment
+
+The chart requests total **650m CPU and 1408 MiB RAM** across its five components, before Kubernetes overhead, other workloads, ingestion spikes and persistent storage. Requests are scheduling inputs, not measured steady-state usage. Review chart/values.yaml PVC sizes, storage-class capacity and retention before install; render offline first if the cluster lacks room.
+
+**No GPU is required** for this DNS, Kubernetes, Rancher, telemetry or tunnel lesson. AI inference is a separate optional workload: model size, precision, context and concurrency determine RAM/VRAM requirements; these examples do not reserve or promise that capacity. Account separately for the chosen runner, GitLab if self-hosted, host OS and existing services. Check `free -h`, `df -h`, and Proxmox `pvesm status`/`pvesh get /nodes/YOUR_NODE/status` on the actual intended machines. On an existing cluster compare allocatable and requested resources with `kubectl describe nodes` and storage/PVC inventory before adding LGTM.
+
+| Initiator | Destination and port | Purpose / when needed |
+| --- | --- | --- |
+| Workstation | Selected GitHub or GitLab HTTPS 443 (or configured trusted local TLS port) | Clone, CLI API and pipeline control; not a substitute for runner network reach |
+| Dedicated selected runner | Proxmox TLS API TCP 8006 | VM Terraform path only; trust its CA, keep management outside DMZ |
+| Dedicated selected runner | Intended guest TCP 22 | Reviewed SSH/bootstrap paths; pin unique host keys |
+| Runner / guests | Approved package and container registries TCP 443 | Downloads; add only repository-specific approved HTTP 80 sources if required |
+| Workload runner | Intended Kubernetes TLS API TCP 6443, or configured KAS TLS route | Manifest/Helm paths only; scoped credentials and verified TLS |
+| Trusted LAN DNS clients | Intended DNS server UDP and TCP 53 | DNS paths only; deliberate listener and narrow ACL/firewall, not demo high ports |
+| DMZ tunnel host | Cloudflare UDP/TCP 7844 and approved HTTPS 443 | Cloudflare connector/install path only; no inbound router forward |
+
+A hosted GitHub validation runner has **no assumed route to your private LAN**. Configure only the selected private execution runner with necessary routes, DNS and firewall permissions. Keep DMZ-to-LAN/admin denial intact; tunnel connectivity alone does not segment your network. Test the selected route from the actual runner with TLS-verifying `curl`, pinned-key SSH and the README runtime commands before deploying, rather than opening management broadly.
+
+
 ## What each component does
 
 | Component | Job | What you can try |
@@ -182,11 +202,22 @@ PVCs have `helm.sh/resource-policy: keep`, so uninstall preserves stored data. R
 
 This repository is a sanitized **local review draft**. No infrastructure or cluster was changed, and nothing was published while preparing it.
 
+## Choose one CI provider before configuring deployment
+
+GitHub and GitLab are **alternative complete paths**. [CI-PATHS.md](CI-PATHS.md) provides the runner setup, GitLab CLI inputs and job controls alongside the GitHub commands below. Choose one owner for each lab. A source-control server stores code and schedules jobs; the selected **runner machine** executes Terraform, SSH, Ansible or Helm and needs the documented network access. Cloning this repository does not install a runner or create a route to Proxmox.
+
+| Choice | Source and job scheduler | Execution machine | Kubernetes access |
+| --- | --- | --- | --- |
+| GitHub | Your private GitHub repository and Actions | Your dedicated self-hosted Linux runner | Scoped kubeconfig where needed; GitLab/KAS not required |
+| GitLab | Your private GitLab project and GitLab CI | Your dedicated protected GitLab Linux runner | Scoped kubeconfig; GitLab agent/KAS is an optional separately configured route |
+
+The public upstream runs unprivileged hosted validation only. A local GitLab is useful if you want to host your own source and scheduler, but is **not** a prerequisite for the GitHub path. KAS does not provision VMs and is not a general-purpose Terraform runner.
+
 ## Why the CI jobs have separate phases
 
 Terraform owns VM allocation and cloud-init inputs; Ansible owns host bootstrap. Kubernetes manifests and Helm own workloads inside the resulting cluster. GitLab KAS connects an agent to GitLab for authorized Kubernetes access without exposing port 6443 publicly; it does not provision VMs or bypass Kubernetes RBAC. Community Edition uses the agent service account scope; CI job impersonation requires the applicable Premium/Ultimate tier.
 
-The public repository validates code on an unprivileged hosted GitHub runner. Its deployment job is deliberately disabled: self-hosted runners belong in your own private deployment repository, never a public fork that accepts outside code. `workflow_dispatch`, a private repository, the default branch, and `DEPLOY_ENABLED=true` must all match before deployment runs. The `homelab` environment can enforce reader-owned approval and secret policies; creating its name alone does not configure approvals. GitLab uses a private project, protected default branch, manual job, protected `homelab` runner and `resource_group`. Configure a separate unprivileged `validation` runner for GitLab validation. Do not share the deployment runner with untrusted projects.
+The public repository validates code on an unprivileged hosted GitHub runner. Its deployment job is ineligible in the public upstream: self-hosted runners belong in your own private deployment repository, never a public fork that accepts outside code. `workflow_dispatch`, a private repository, the default branch, and `DEPLOY_ENABLED=true` must all match before deployment runs. The `homelab` environment can enforce reader-owned approval and secret policies; creating its name alone does not configure approvals. GitLab uses a private project, protected default branch, manual job, protected `homelab` runner and `resource_group`. Configure a separate unprivileged `validation` runner for GitLab validation. Do not share the deployment runner with untrusted projects.
 
 Create a private copy using the CLI, after reviewing the source:
 
@@ -198,7 +229,7 @@ gh repo create YOUR-OWNER/lgtm-kubernetes-lab-deployment --private --source . --
 gh variable set DEPLOY_ENABLED --body false --repo YOUR-OWNER/REPO
 ```
 
-For GitLab, create a private project with `glab repo create --private`, push the reviewed checkout there, protect its default branch, and register a protected deployment runner. Store secrets as masked, protected environment-scoped CI variables; public settings belong in regular variables. Importing source does not transfer GitHub secrets, runners or state. Set `HOMELAB_ACTION` when starting the GitLab manual job; it defaults to `plan`.
+For GitLab, create a private project with `glab repo create --private`, push the reviewed checkout there, protect its default branch, and register a protected deployment runner. Store secrets as protected CI variables; use masking for eligible single-line values. Multiline keys and kubeconfigs cannot satisfy masking restrictions: keep them protected, never print them, and follow CI-PATHS.md. Public settings belong in regular variables. Importing source does not transfer GitHub secrets, runners or state. Set `HOMELAB_ACTION` when starting the GitLab manual job; it defaults to `plan`.
 
 ### Manifest-only deployment
 
