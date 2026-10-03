@@ -1,0 +1,54 @@
+multitenancy_enabled: false
+activity_tracker:
+  filepath: /data/metrics-activity.log
+server:
+  http_listen_port: 9009
+# Explicit classic single-process ingest path; Kafka is not needed in this lab.
+memberlist:
+  bind_addr: [127.0.0.1]
+  advertise_addr: 127.0.0.1
+ingest_storage:
+  enabled: false
+blocks_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/blocks
+  tsdb:
+    dir: /data/tsdb
+  bucket_store:
+    sync_dir: /data/tsdb-sync
+ingester:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+    replication_factor: 1
+store_gateway:
+  sharding_ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+    replication_factor: 1
+compactor:
+  data_dir: /data/compactor
+  sharding_ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+ruler_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/ruler-store
+ruler:
+  rule_path: /data/ruler-tmp
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+limits:
+  compactor_blocks_retention_period: 24h
+  ingestion_rate: 10000
+  ingestion_burst_size: 20000
+  max_global_series_per_user: 10000
+usage_stats:
+  enabled: false

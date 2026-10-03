@@ -1,0 +1,5 @@
+.secrets/
+.rendered/
+.kube/
+*.tgz
+__pycache__/

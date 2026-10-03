@@ -1,0 +1,5 @@
+apiVersion: v2
+name: lgtm-lab
+description: Small private single-process LGTM learning stack
+version: 0.1.0
+type: application

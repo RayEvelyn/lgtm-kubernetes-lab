@@ -1,0 +1,93 @@
+// Metrics: scrape these lab backends; full kubelet/KSM monitoring is a later extension.
+prometheus.scrape "lab" {
+	targets = [
+		{"__address__" = "loki.{{ .Release.Namespace }}.svc.cluster.local:3100", "job" = "loki"},
+		{"__address__" = "tempo.{{ .Release.Namespace }}.svc.cluster.local:3200", "job" = "tempo"},
+		{"__address__" = "mimir.{{ .Release.Namespace }}.svc.cluster.local:9009", "job" = "mimir"},
+		{"__address__" = "grafana.{{ .Release.Namespace }}.svc.cluster.local:3000", "job" = "grafana"},
+		{"__address__" = "alloy.{{ .Release.Namespace }}.svc.cluster.local:12345", "job" = "alloy"},
+	]
+	scrape_interval = "30s"
+	forward_to      = [prometheus.remote_write.mimir.receiver]
+}
+
+prometheus.remote_write "mimir" {
+	external_labels = {"cluster" = "homelab"}
+
+	endpoint {
+		url = "http://mimir.{{ .Release.Namespace }}.svc.cluster.local:9009/api/v1/push"
+	}
+}
+// Logs: Kubernetes API read-only access within this namespace; no hostPath/root collector.
+discovery.kubernetes "lab_pods" {
+	role = "pod"
+
+	namespaces {
+		names = ["{{ .Release.Namespace }}"]
+	}
+}
+
+discovery.relabel "pod_logs" {
+	targets = discovery.kubernetes.lab_pods.targets
+
+	rule {
+		source_labels = ["__meta_kubernetes_namespace"]
+		target_label  = "namespace"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_name"]
+		target_label  = "pod"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_container_name"]
+		target_label  = "container"
+	}
+}
+
+loki.source.kubernetes "pods" {
+	targets    = discovery.relabel.pod_logs.output
+	forward_to = [loki.write.loki.receiver]
+}
+
+loki.write "loki" {
+	external_labels = {"cluster" = "homelab"}
+
+	endpoint {
+		url = "http://loki.{{ .Release.Namespace }}.svc.cluster.local:3100/loki/api/v1/push"
+	}
+}
+// Traces: applications must emit OTLP spans; logs never turn into traces automatically.
+otelcol.receiver.otlp "applications" {
+	grpc {
+		endpoint = "0.0.0.0:4317"
+	}
+
+	http {
+		endpoint = "0.0.0.0:4318"
+	}
+
+	output {
+		traces = [otelcol.processor.batch.traces.input]
+	}
+}
+
+otelcol.processor.batch "traces" {
+	timeout         = "5s"
+	send_batch_size = 512
+
+	output {
+		traces = [otelcol.exporter.otlp.tempo.input]
+	}
+}
+
+otelcol.exporter.otlp "tempo" {
+	client {
+		endpoint = "tempo.{{ .Release.Namespace }}.svc.cluster.local:4317"
+
+		tls {
+			insecure = true
+		}
+	}
+}
