@@ -1,0 +1,32 @@
+name: Deploy private lab
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Review plan first; provision stops before SSH; deploy bootstraps the lab'
+        type: choice
+        options: [plan, deploy]
+        default: plan
+permissions:
+  contents: read
+concurrency:
+  group: homelab-${{ github.repository_id }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.event.repository.private && vars.DEPLOY_ENABLED == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: [self-hosted, linux, homelab]
+    environment: homelab
+    env:
+      HOMELAB_ACTION: ${{ inputs.action }}
+      DEPLOY_ENABLED: ${{ vars.DEPLOY_ENABLED }}
+      HOMELAB_PRIVATE_REPOSITORY: ${{ github.event.repository.private }}
+      EXPECTED_CONTEXT: ${{ vars.EXPECTED_CONTEXT }}
+      STORAGE_CLASS: ${{ vars.STORAGE_CLASS }}
+      HOMELAB_KUBECONFIG: ${{ secrets.HOMELAB_KUBECONFIG }}
+      GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: ./scripts/ci-deploy.sh

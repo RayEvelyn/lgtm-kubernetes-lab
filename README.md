@@ -181,3 +181,29 @@ PVCs have `helm.sh/resource-policy: keep`, so uninstall preserves stored data. R
 - [Alloy OpenTelemetry receiver](https://grafana.com/docs/alloy/latest/reference/components/otelcol/otelcol.receiver.otlp/)
 
 This repository is a sanitized **local review draft**. No infrastructure or cluster was changed, and nothing was published while preparing it.
+
+## Why the CI jobs have separate phases
+
+Terraform owns VM allocation and cloud-init inputs; Ansible owns host bootstrap. Kubernetes manifests and Helm own workloads inside the resulting cluster. GitLab KAS connects an agent to GitLab for authorized Kubernetes access without exposing port 6443 publicly; it does not provision VMs or bypass Kubernetes RBAC. Community Edition uses the agent service account scope; CI job impersonation requires the applicable Premium/Ultimate tier.
+
+The public repository validates code on an unprivileged hosted GitHub runner. Its deployment job is deliberately disabled: self-hosted runners belong in your own private deployment repository, never a public fork that accepts outside code. `workflow_dispatch`, a private repository, the default branch, and `DEPLOY_ENABLED=true` must all match before deployment runs. The `homelab` environment can enforce reader-owned approval and secret policies; creating its name alone does not configure approvals. GitLab uses a private project, protected default branch, manual job, protected `homelab` runner and `resource_group`. Configure a separate unprivileged `validation` runner for GitLab validation. Do not share the deployment runner with untrusted projects.
+
+Create a private copy using the CLI, after reviewing the source:
+
+```sh
+git clone https://github.com/RayEvelyn/lgtm-kubernetes-lab.git
+cd lgtm-kubernetes-lab
+gh repo create YOUR-OWNER/lgtm-kubernetes-lab-deployment --private --source . --remote deployment --push
+# Target this private repository for subsequent gh secret/variable commands.
+gh variable set DEPLOY_ENABLED --body false --repo YOUR-OWNER/REPO
+```
+
+For GitLab, create a private project with `glab repo create --private`, push the reviewed checkout there, protect its default branch, and register a protected deployment runner. Store secrets as masked, protected environment-scoped CI variables; public settings belong in regular variables. Importing source does not transfer GitHub secrets, runners or state. Set `HOMELAB_ACTION` when starting the GitLab manual job; it defaults to `plan`.
+
+### Manifest-only deployment
+
+This repository does not allocate VMs. First create and verify a workload cluster using the kubeadm or K3s/Rancher example. The private Linux homelab runner needs Helm, kubectl, Python 3, and private connectivity to that cluster. Provide `HOMELAB_KUBECONFIG` as a protected CI secret using a dedicated identity with the permissions required for the reviewed observability namespace, storage class discovery and Helm resources. Set nonsecret `EXPECTED_CONTEXT` and `STORAGE_CLASS`. Provide a stable, reader-generated `GRAFANA_ADMIN_PASSWORD` protected secret; reruns preserve that chosen credential instead of inventing a new password. Local interactive setup still uses `prepare-secret.sh`. CI writes the Secret JSON and kubeconfig into a private temporary directory, removes both afterward, and refuses an existing namespace without this lab's ownership label. Helm/PVC retention is not a backup: back up the stateful data separately.
+
+`plan` renders the chart without a cluster call; `deploy` explicitly applies the reviewed configuration. Use one deployment platform as owner of this release; GitHub concurrency and GitLab resource groups serialize their own repository jobs, not competing platforms. Applications must be instrumented to emit OTLP traces; logs do not create traces automatically.
+
+CI configuration has been checked locally as recorded in VALIDATION.md where present. No example workflow has been run against your infrastructure. The private runner prerequisites, network trust, secret values and first real deployment remain reader responsibilities. Official references: [GitHub runner guidance](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job), [GitLab protected/manual jobs](https://docs.gitlab.com/ci/jobs/job_control/), [Terraform local backend](https://developer.hashicorp.com/terraform/language/backend/local).

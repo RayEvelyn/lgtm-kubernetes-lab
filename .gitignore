@@ -3,3 +3,5 @@
 .kube/
 *.tgz
 __pycache__/
+
+*.tfvars.json
